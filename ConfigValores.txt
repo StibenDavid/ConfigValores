@@ -1,0 +1,585 @@
+#include <Wire.h>
+#include <EEPROM.h>
+#include <AsyncTaskLib.h>
+#include <LiquidCrystal.h>
+
+LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
+//RGB
+#define RGB_GREEN 32 
+#define RGB_BLUE 31 
+#define RGB_RED 30 
+
+//fotosensor
+const int photocellPin = A1;
+int foto_value = 0;
+int luz;
+void fotoresistor(void);
+
+//temperatura
+#define analogPin A0 //the thermistor attach to
+#define beta 4090 //the beta of the thermistor
+#define resistance 10 //the value of the pull-down resistor
+float temp_value = 0.0;
+byte temp_high;
+byte temp_low;
+void temperatura(void);
+
+//Sonido
+byte sonido;
+
+//decoder
+#define clkPin 2
+#define dtPin 3
+#define swPin 4 //the number of the buttonint   click
+//int opc = 0;
+int encoder(int encoderValX, int rango);
+
+//BUZZER
+#define NOTE_B0  31 // notas y frecuencias
+#define NOTE_C1  33
+#define NOTE_CS1 35
+#define NOTE_D1  37
+#define NOTE_DS1 39
+#define NOTE_E1  41
+#define NOTE_F1  44
+#define NOTE_FS1 46
+#define NOTE_G1  49
+#define NOTE_GS1 52
+#define NOTE_A1  55
+#define NOTE_AS1 58
+#define NOTE_B1  62
+#define NOTE_C2  65
+#define NOTE_CS2 69
+#define NOTE_D2  73
+#define NOTE_DS2 78
+#define NOTE_E2  82
+#define NOTE_F2  87
+#define NOTE_FS2 93
+#define NOTE_G2  98
+#define NOTE_GS2 104
+#define NOTE_A2  110
+#define NOTE_AS2 117
+#define NOTE_B2  123
+#define NOTE_C3  131
+#define NOTE_CS3 139
+#define NOTE_D3  147
+#define NOTE_DS3 156
+#define NOTE_E3  165
+#define NOTE_F3  175
+#define NOTE_FS3 185
+#define NOTE_G3  196
+#define NOTE_GS3 208
+#define NOTE_A3  220
+#define NOTE_AS3 233
+#define NOTE_B3  247
+#define NOTE_C4  262
+#define NOTE_CS4 277
+#define NOTE_D4  294
+#define NOTE_DS4 311
+#define NOTE_E4  330
+#define NOTE_F4  349
+#define NOTE_FS4 370
+#define NOTE_G4  392
+#define NOTE_GS4 415
+#define NOTE_A4  440
+#define NOTE_AS4 466
+#define NOTE_B4  494
+#define NOTE_C5  523
+#define NOTE_CS5 554
+#define NOTE_D5  587
+#define NOTE_DS5 622
+#define NOTE_E5  659
+#define NOTE_F5  698
+#define NOTE_FS5 740
+#define NOTE_G5  784
+#define NOTE_GS5 831
+#define NOTE_A5  880
+#define NOTE_AS5 932
+#define NOTE_B5  988
+#define NOTE_C6  1047
+#define NOTE_CS6 1109
+#define NOTE_D6  1175
+#define NOTE_DS6 1245
+#define NOTE_E6  1319
+#define NOTE_F6  1397
+#define NOTE_FS6 1480
+#define NOTE_G6  1568
+#define NOTE_GS6 1661
+#define NOTE_A6  1760
+#define NOTE_AS6 1865
+#define NOTE_B6  1976
+#define NOTE_C7  2093
+#define NOTE_CS7 2217
+#define NOTE_D7  2349
+#define NOTE_DS7 2489
+#define NOTE_E7  2637
+#define NOTE_F7  2794
+#define NOTE_FS7 2960
+#define NOTE_G7  3136
+#define NOTE_GS7 3322
+#define NOTE_A7  3520
+#define NOTE_AS7 3729
+#define NOTE_B7  3951
+#define NOTE_C8  4186
+#define NOTE_CS8 4435
+#define NOTE_D8  4699
+#define NOTE_DS8 4978
+
+#define PULSADOR 2    // pulsador en pin 2
+#define BUZZER_PASIVO 13  
+int melodia[] = {   // array con las notas de la melodia
+  NOTE_C4
+};
+
+int duraciones[] = {    // array con la duracion de cada nota
+  8, 8, 4, 4, 4, 2, 8, 8, 4, 4, 4, 2, 8, 8, 4, 4, 4, 4, 4, 8, 8, 4, 4, 4, 2
+};
+
+// menu
+int opc;
+String arrayMenu[] = {"Temp HIGH", "Temp LOW", "Luz", "Sonido", "Reset"};
+int bandera = 0;
+int valor=-1;
+
+
+// flechita
+byte caracter[8] = {
+  0b00000,
+  0b00100,
+  0b00010,
+  0b11111,
+  0b00010,
+  0b00100,
+  0b00000,
+  0b00000
+};
+
+//Variables para EEPROM
+const int dir_temp_high=0;
+const int dir_temp_low=1;
+const int dir_luz = 2;
+const int dir_sonido = 6;
+
+//Tareas asíncronas
+AsyncTask asyncTaskTemp(2000, true, temperatura);
+AsyncTask asyncTaskFoto(1000, true, fotoresistor);
+AsyncTask asyncTaskEncod(500, true, encoder);
+/*************************************************/
+void setup() {
+  Serial.begin(115200);
+  lcd.begin(16, 2);
+ 
+  pinMode(clkPin, INPUT);
+  pinMode(dtPin, INPUT);
+  pinMode(swPin, INPUT);
+  digitalWrite(swPin, HIGH);
+  //Serial.begin(115200);
+
+  pinMode(swPin, INPUT_PULLUP);  // pin 2 como entrada con resistencia de pull-up
+  pinMode(BUZZER_PASIVO, OUTPUT); // pin 8 como salida
+ 
+  asyncTaskTemp.Start();
+  asyncTaskFoto.Start();
+  cargarValores();
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+menu();
+}
+//Funciones para EEPROM
+void cargarValores(){
+  //TODO: variables constantes para la direccion de los valores
+  temp_high = EEPROM.read(dir_temp_high);
+  temp_low = EEPROM.read(dir_temp_low);
+  luz = EEPROM.get(dir_luz, luz);
+  sonido = EEPROM.read(dir_sonido);
+  //TODO: Falta cargar más variables
+}
+void reiniciarValores(){
+  temp_high=25;
+  EEPROM.write(dir_temp_high,temp_high);
+  temp_low=18;
+  EEPROM.write(dir_temp_low,temp_low);
+  luz = 300;
+  EEPROM.put(dir_luz,luz);
+  sonido = 30;
+  EEPROM.write(dir_sonido,sonido);
+  //TODO: Implement
+}
+//Menu de configuracion
+void mostrar_caracter(int pos) {
+  lcd.createChar(1, caracter);
+  lcd.setCursor(0, pos);
+  lcd.write((byte)1);
+}
+void menu() {
+  if (bandera == 0) {
+    opc = encoder(opc,-1);
+  }
+  btn_encoder();
+  
+  //pantalla0
+  if (opc == 0 || opc == 1) {
+    
+    pantalla0();
+  }else if (opc == 2 || opc == 3) {//cambia a pantalla1
+    pantalla1();
+  } else if (opc == 4 || opc == 5) {//cambia a pantalla2
+    pantalla2();
+  }else if (opc == 6 || opc == 7) {//cambia a pantalla3
+    pantalla3();
+  }
+}
+//Pantallas
+void pantalla0(){
+  if (bandera == 1) { // seleccionado
+      if (opc == 0) {
+        clear_down();
+        temp_High();
+      } else if (opc == 1) {
+        clear_up();
+        temp_Low();
+      }
+      clear_down();
+    } else { // NO seleccionado bandera = 0
+      clear_up();
+      if (opc == 0) {
+        lcd.setCursor(0, 2);
+        lcd.print(" ");
+        mostrar_caracter(0);
+      } else if (opc == 1) {
+        lcd.setCursor(0, 0);
+        lcd.print(" ");
+        mostrar_caracter(2);
+      }
+      lcd.setCursor(1, 0);
+      lcd.print(arrayMenu[0]);
+      lcd.setCursor(1, 1);
+      lcd.print(arrayMenu[1]);
+    }
+}
+void pantalla1(){
+  if (bandera == 1) { // seleccionado
+      if (opc == 2) {
+        clear_down();
+        temp_Low();
+      } else if (opc == 3) {
+        clear_up();
+        lcd.setCursor(0, 0);
+        mostrar_caracter(0);
+        lcd.print(" Luz");
+        clear_down();
+        Luz();
+      }
+
+    } else { // NO seleccionado b = 0
+      lcd.setCursor(0, 0); //arriba
+      lcd.print("                ");
+      if (opc == 2) {
+        lcd.setCursor(0, 2);
+        lcd.print(" ");
+        mostrar_caracter(0);
+      } else if (opc == 3) {
+        lcd.setCursor(0, 0);
+        lcd.print(" ");
+        mostrar_caracter(2);
+      }
+      lcd.setCursor(1, 0);
+      lcd.print(arrayMenu[1]);
+      lcd.setCursor(1, 1);
+      lcd.print("                ");
+      lcd.setCursor(1, 1);
+      lcd.print(arrayMenu[2]);
+    }
+}
+void pantalla2(){
+  if (bandera == 1) { // seleccionado
+      if (opc == 4) {
+        clear_down();
+        Luz();
+
+      } else if (opc == 5) {
+        clear_up();
+
+        lcd.setCursor(0, 0);
+        mostrar_caracter(0);
+        lcd.print("Sonido ");
+        clear_down();
+        Sonido();
+      }
+
+    } else { // NO seleccionado b = 0
+      clear_up();
+      if (opc == 4) {
+        lcd.setCursor(0, 2);
+        lcd.print(" ");
+        mostrar_caracter(0);
+      } else if (opc == 5) {
+        lcd.setCursor(0, 0);
+        lcd.print(" ");
+        mostrar_caracter(2);
+      }
+      lcd.setCursor(1, 0);
+      lcd.print(arrayMenu[2]);
+      lcd.setCursor(1, 1);
+      lcd.print("                ");
+      lcd.setCursor(1, 1);
+      lcd.print(arrayMenu[3]);
+    }
+}
+void pantalla3(){
+  if (bandera == 1) { // seleccionado
+      if (opc == 6) {
+        clear_down();
+        Sonido();
+
+      } else if (opc == 7) {
+        //TODO: Poner los set en funciones
+        clear_up();
+        lcd.setCursor(0, 0);
+        mostrar_caracter(0);
+        lcd.print("Reset");
+        lcd.setCursor(0, 1);
+        lcd.print("       ");
+        lcd.setCursor(0, 1);
+        lcd.print("   COMPLETADO!");
+        reiniciarValores();
+      }
+
+    } else { // NO seleccionado bandera = 0
+      clear_up();
+      if (opc == 6) {
+        lcd.setCursor(0, 2);
+        lcd.print(" ");
+        mostrar_caracter(0);
+      } else if (opc == 7) {
+        lcd.setCursor(0, 0);
+        lcd.print(" ");
+        mostrar_caracter(2);
+      }
+      lcd.setCursor(1, 0);
+      lcd.print(arrayMenu[3]);
+      lcd.setCursor(1, 1);
+      lcd.print("                ");
+      lcd.setCursor(1, 1);
+      lcd.print(arrayMenu[4]);
+    }
+}
+//funciones de configuracion
+void temp_High(){
+        valor=temp_high;
+        valor = encoder(valor,0);
+        lcd.setCursor(12, 0);
+        lcd.print( valor );
+        lcd.setCursor(14, 0);
+        lcd.print(" C");
+        temp_high = valor;
+        EEPROM.write(dir_temp_high, temp_high );
+}
+void temp_Low(){
+        lcd.setCursor(0, 0);
+        mostrar_caracter(0);
+        lcd.print(" Temp LOW ");
+        valor = temp_low;
+        valor = encoder(valor,1);
+        lcd.setCursor(12, 0);
+        lcd.print( valor );
+        lcd.setCursor(14, 0);
+        lcd.print("C");
+        temp_low = valor;
+        EEPROM.write(dir_temp_low, temp_low);
+}
+void Luz(){
+        valor = luz;
+        valor = encoder(valor,2);
+        lcd.setCursor(6, 0);
+        lcd.print( valor );
+        lcd.setCursor(9, 0);
+        lcd.print(" lm");
+        luz = valor;
+        EEPROM.put(dir_luz, luz);
+}
+void Sonido(){
+        valor = sonido;
+        valor = encoder(valor,3);
+        lcd.setCursor(9, 0);
+        lcd.print( valor );
+        lcd.setCursor(11, 0);
+        lcd.print(" dB");
+        sonido = valor;
+        EEPROM.write(dir_sonido, sonido);
+}
+//Funciones del sistema
+void fotoresistor(void) {
+
+  foto_value = analogRead(photocellPin);
+  lcd.setCursor(0, 0);
+  lcd.print("Photocell:");
+  lcd.setCursor(11, 0);
+  lcd.print(foto_value);//print the temperature on lcd1602
+  //Serial.print(millis() / 1000);
+  //Serial.print(", fotoresistor, ");
+  //Serial.println(foto_value);
+
+  if (foto_value > 700) {
+    //RGB(1, 0, 0);
+    RGB(0, 1, 1);
+    delay(500);
+    RGB(0, 0, 0);
+  } else {
+    RGB(0, 1, 0);
+    delay(500);
+    RGB(0, 0, 0);
+  }
+
+  //Serial.println(outputValue);
+  delay(1000);
+  lcd.setCursor(11, 0);
+  lcd.print(" ");
+}
+
+void temperatura(void)
+{
+  //read thermistor value
+  long a = 1023 - analogRead(analogPin);
+  //the calculating formula of temperature
+  float temp_value = beta / (log((1025.0 * 10 / a - 10) / 10) + beta / 298.0) - 273.0;
+  float tempF = temp_value + 273.15;
+  // Print a message of “Temp: “to the LCD.
+  // set the cursor to column 0, line 0
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+  // Print a centigrade temperature to the LCD.
+  lcd.print(temp_value);
+  // Print the unit of the centigrade temperature to the LCD.
+  lcd.print(" C");
+  //Serial.print(millis() / 1000);
+  //Serial.print(", temperatura, ");
+  //Serial.println(temp_value);
+  /*
+    // set the cursor to column 0, line 1
+    // (note: line 1 is the second row, since counting begins with 0):
+    lcd.setCursor(0, 1);
+    lcd.print("Fahr: ");
+    // Print a Fahrenheit temperature to the LCD.
+    lcd.print(tempF);
+    // Print the unit of the Fahrenheit temperature to the LCD.
+    lcd.print("F");*/
+  if (temp_value > 30) { // 25
+
+    //RGB(1, 0, 0);
+    RGB(0, 1, 1);
+    delay(500);
+    RGB(0, 0, 0);
+  } else if (temp_value < 27) { //18
+    RGB(0, 0, 1);
+    delay(500);
+    RGB(0, 0, 0);
+  } else if (temp_value < 30 && temp_value > 27) {
+    RGB(0, 1, 0);
+    delay(1000);
+    RGB(0, 0, 0);
+  }
+
+  delay(200); //wait for 100 milliseconds
+}
+//Funciones del Encoder
+void btn_encoder() {
+
+  if (digitalRead(swPin) == LOW) {
+    if (bandera == 0) {
+      bandera = 1;
+    } else {
+      bandera = 0;
+    }
+  }
+}
+
+int encoder(int encoderValX, int rango) {
+  int change = getEncoderTurn();
+  encoderValX = encoderValX + change;
+
+  if (rango == -1) {
+    if (encoderValX >= 8) {
+      encoderValX = 7;
+    } else if (encoderValX <= -1) {
+      encoderValX = 0;
+    }
+   
+  }else if(rango == 0){ // TEMP HIGH
+    if (encoderValX >= 51) {
+      encoderValX = 50;
+    } else if (encoderValX <= 24) {
+        encoderValX = 25;      
+    }
+  }else if(rango == 1){ // TEMP LOW
+    if (encoderValX >= 19) {
+      encoderValX = 18;
+    } else if (encoderValX <= -1) {
+      encoderValX = 0;
+    }
+  }else if(rango == 2){ // LUZ
+    if (encoderValX >= 301) {
+      encoderValX = 300;
+    } else if (encoderValX <= -1) {
+      encoderValX = 0;
+    }
+  }else if(rango == 3){ // SONIDO
+    if (encoderValX >= 31) {
+      encoderValX = 30;
+    } else if (encoderValX <= -1) {
+      encoderValX = 0;
+    }
+  }
+
+  return encoderValX;
+}
+
+int getEncoderTurn(void)
+{
+  static int oldA = HIGH;
+  static int oldB = HIGH;
+  int result = 0;
+  int newA = digitalRead(clkPin);
+  int newB = digitalRead(dtPin);
+  if (newA != oldA || newB != oldB)
+  {
+    // something has changed
+    if (oldA == HIGH && newA == LOW)
+    {
+      result = (oldB * 2 - 1);
+    }
+  }
+  oldA = newA;
+  oldB = newB;
+  return result;
+}
+//Funciones del buzzer
+void buzzer_entrada(){
+  if(digitalRead(swPin) == LOW){     // si se ha presionadl el pulsador
+    for (int i = 0; i < 2; i++) {      // bucle repite 25 veces
+      int duracion = 1000 / duraciones[i];    // duracion de la nota en milisegundos
+      tone(BUZZER_PASIVO, melodia[i], duracion);  // ejecuta el tono con la duracion
+      int pausa = duracion * 1.30;      // calcula pausa
+      delay(pausa);         // demora con valor de pausa
+      noTone(BUZZER_PASIVO);        // detiene reproduccion de tono
+      //Serial.println(swPin);
+    }
+  }
+}
+//Funciones del lcd
+void clear_up() {
+  lcd.setCursor(0, 0);
+  lcd.print("                 ");
+}
+void clear_down() {
+  lcd.setCursor(0, 1);
+  lcd.print("                 ");
+}
+//Funciones RGB
+void RGB(int R, int G, int B) {
+  digitalWrite(RGB_RED, R);
+  digitalWrite(RGB_GREEN, G);
+  digitalWrite(RGB_BLUE, B);
+}
